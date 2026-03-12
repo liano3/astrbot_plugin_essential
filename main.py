@@ -37,7 +37,7 @@ class Main(Star):
                 f.write(json.dumps({}, ensure_ascii=False, indent=2))
         with open(f"data/{PLUGIN_NAME}_data.json", "r", encoding="utf-8") as f:
             self.data = json.loads(f.read())
-        self.good_morning_data = self.data.get("good_morning", {})
+        self.good_morning_data = self.data.get("good_morning", {});
 
         # moe
         self.moe_urls = [
@@ -92,6 +92,42 @@ class Main(Star):
     def update_good_morning_cd(self, user_id: str, current_time: datetime.datetime):
         """更新用户的CD时间"""
         self.good_morning_cd[user_id] = current_time
+
+    def _wrap_text(self, text: str, font: PILImageFont.FreeTypeFont, max_width: int) -> str:
+        """将文字按最大宽度自动换行，返回换行后的字符串"""
+        draw_tmp = PILImageDraw.Draw(PILImage.new("RGB", (1, 1)))
+        lines = []
+        # 先按已有换行符拆分
+        for paragraph in text.split("\n"):
+            current_line = ""
+            for char in paragraph:
+                test_line = current_line + char
+                w = draw_tmp.textbbox((0, 0), test_line, font=font)[2]
+                if w > max_width and current_line:
+                    lines.append(current_line)
+                    current_line = char
+                else:
+                    current_line = test_line
+            lines.append(current_line)
+        return "\n".join(lines)
+
+    def _fit_font(self, font_path: str, text: str, max_width: int, max_height: int, initial_size: int) -> tuple:
+        """自适应字体大小，保证文字（含换行）不超出指定区域，返回 (font, wrapped_text)"""
+        size = initial_size
+        draw_tmp = PILImageDraw.Draw(PILImage.new("RGB", (1, 1)))
+        while size >= 10:
+            font = PILImageFont.truetype(font_path, size)
+            wrapped = self._wrap_text(text, font, max_width)
+            bbox = draw_tmp.textbbox((0, 0), wrapped, font=font)
+            w = bbox[2] - bbox[0]
+            h = bbox[3] - bbox[1]
+            if w <= max_width and h <= max_height:
+                return font, wrapped
+            size -= 2
+        # 最小字号兜底
+        font = PILImageFont.truetype(font_path, 10)
+        wrapped = self._wrap_text(text, font, max_width)
+        return font, wrapped
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def handle_search_anime(self, message: AstrMessageEvent):
@@ -157,25 +193,31 @@ class Main(Star):
     async def congrats(self, message: AstrMessageEvent):
         """喜报生成器"""
         msg = message.message_str.replace("喜报", "").strip()
-        for i in range(20, len(msg), 20):
-            msg = msg[:i] + "\n" + msg[i:]
 
         path = os.path.abspath(os.path.dirname(__file__))
         bg = path + "/congrats.jpg"
         img = PILImage.open(bg)
         draw = PILImageDraw.Draw(img)
-        font = PILImageFont.truetype(path + "/simhei.ttf", self._get_report_font_size())
+        font_path = path + "/simhei.ttf"
 
-        # Calculate the width and height of the text
-        text_width, text_height = draw.textbbox((0, 0), msg, font=font)[2:4]
+        # 留边距，文字区域为图片的80%
+        margin_x = int(img.size[0] * 0.1)
+        margin_y = int(img.size[1] * 0.1)
+        max_w = img.size[0] - margin_x * 2
+        max_h = img.size[1] - margin_y * 2
 
-        # Calculate the starting position of the text to center it.
+        font, wrapped_msg = self._fit_font(font_path, msg, max_w, max_h, self._get_report_font_size())
+
+        # 计算文字包围盒，居中绘制
+        bbox = draw.textbbox((0, 0), wrapped_msg, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
         x = (img.size[0] - text_width) / 2
         y = (img.size[1] - text_height) / 2
 
         draw.text(
             (x, y),
-            msg,
+            wrapped_msg,
             font=font,
             fill=(255, 0, 0),
             stroke_width=3,
@@ -189,25 +231,31 @@ class Main(Star):
     async def uncongrats(self, message: AstrMessageEvent):
         """悲报生成器"""
         msg = message.message_str.replace("悲报", "").strip()
-        for i in range(20, len(msg), 20):
-            msg = msg[:i] + "\n" + msg[i:]
 
         path = os.path.abspath(os.path.dirname(__file__))
         bg = path + "/uncongrats.jpg"
         img = PILImage.open(bg)
         draw = PILImageDraw.Draw(img)
-        font = PILImageFont.truetype(path + "/simhei.ttf", self._get_report_font_size())
+        font_path = path + "/simhei.ttf"
 
-        # Calculate the width and height of the text
-        text_width, text_height = draw.textbbox((0, 0), msg, font=font)[2:4]
+        # 留边距，文字区域为图片的80%
+        margin_x = int(img.size[0] * 0.1)
+        margin_y = int(img.size[1] * 0.1)
+        max_w = img.size[0] - margin_x * 2
+        max_h = img.size[1] - margin_y * 2
 
-        # Calculate the starting position of the text to center it.
+        font, wrapped_msg = self._fit_font(font_path, msg, max_w, max_h, self._get_report_font_size())
+
+        # 计算文字包围盒，居中绘制
+        bbox = draw.textbbox((0, 0), wrapped_msg, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
         x = (img.size[0] - text_width) / 2
         y = (img.size[1] - text_height) / 2
 
         draw.text(
             (x, y),
-            msg,
+            wrapped_msg,
             font=font,
             fill=(0, 0, 0),
             stroke_width=3,
@@ -287,7 +335,7 @@ class Main(Star):
             motd = "\n".join(motd_lines) if motd_lines else "查询失败"
 
         players = "查询失败"
-        version = "查���失败"
+        version = "查询失败"
         if "error" in data:
             return CommandResult().error(f"查询失败: {data['error']}")
 
