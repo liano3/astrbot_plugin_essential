@@ -287,7 +287,7 @@ class Main(Star):
             motd = "\n".join(motd_lines) if motd_lines else "查询失败"
 
         players = "查询失败"
-        version = "查询失败"
+        version = "查���失败"
         if "error" in data:
             return CommandResult().error(f"查询失败: {data['error']}")
 
@@ -331,7 +331,7 @@ class Main(Star):
                 if resp.status != 200:
                     return CommandResult().error("请求失败")
                 data = await resp.json()
-        return CommandResult().message(data["hitokoto"] + " —— " + data["from"])
+        return CommandResult().message(data["hitokoto"] + " —— " + data["from"]) 
 
     async def save_what_eat_data(self):
         path = os.path.abspath(os.path.dirname(__file__))
@@ -472,7 +472,7 @@ class Main(Star):
             user = {
                 "daily": {
                     "morning_time": "",
-                    "night_time": "",
+                    "night_time": ""
                 }
             }
 
@@ -485,8 +485,10 @@ class Main(Star):
         umo[user_id] = user
         self.good_morning_data[umo_id] = umo
 
+        # 修复：保存时将 good_morning_data 包裹在正确的结构中，避免重启后数据丢失
+        self.data["good_morning"] = self.good_morning_data
         with open(f"data/{self.PLUGIN_NAME}_data.json", "w", encoding="utf-8") as f:
-            f.write(json.dumps(self.good_morning_data, ensure_ascii=False, indent=2))
+            f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
             
         # 更新CD
         self.update_good_morning_cd(user_id, curr_utc8)
@@ -517,7 +519,7 @@ class Main(Star):
                     user["daily"]["night_time"], "%Y-%m-%d %H:%M:%S"
                 )
                 morning_time = datetime.datetime.strptime(
-                    user["daily"]["morning_time"], "%Y-%m-%d %H:%M:%S"
+                    user["daily"]["morning_time"] , "%Y-%m-%d %H:%M:%S"
                 )
                 sleep_duration = (morning_time - night_time).total_seconds()
                 hrs = int(sleep_duration / 3600)
