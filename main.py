@@ -37,7 +37,7 @@ class Main(Star):
                 f.write(json.dumps({}, ensure_ascii=False, indent=2))
         with open(f"data/{PLUGIN_NAME}_data.json", "r", encoding="utf-8") as f:
             self.data = json.loads(f.read())
-        self.good_morning_data = self.data.get("good_morning", {});
+        self.good_morning_data = self.data.get("good_morning", {})
 
         # moe
         self.moe_urls = [
@@ -49,7 +49,7 @@ class Main(Star):
 
         self.search_anmime_demand_users = {}
         self.daily_sleep_cache = {}
-        self.good_morning_cd = {} 
+        self.good_morning_cd = {}
 
     def _get_report_font_size(self) -> int:
         size = self.config.get("report_font_size", 65)
@@ -62,7 +62,7 @@ class Main(Star):
     def time_convert(self, t):
         m, s = divmod(t, 60)
         return f"{int(m)}分{int(s)}秒"
-    
+
     def get_cached_sleep_count(self, umo_id: str, date_str: str) -> int:
         """获取缓存的睡觉人数"""
         if umo_id not in self.daily_sleep_cache:
@@ -76,15 +76,15 @@ class Main(Star):
         self.daily_sleep_cache[umo_id][date_str] = count
 
     def invalidate_sleep_cache(self, umo_id: str, date_str: str):
-            """使缓存失效"""
-            if umo_id in self.daily_sleep_cache and date_str in self.daily_sleep_cache[umo_id]:
-                del self.daily_sleep_cache[umo_id][date_str]
+        """使缓存失效"""
+        if umo_id in self.daily_sleep_cache and date_str in self.daily_sleep_cache[umo_id]:
+            del self.daily_sleep_cache[umo_id][date_str]
 
     def check_good_morning_cd(self, user_id: str, current_time: datetime.datetime) -> bool:
         """检查用户是否在CD中，返回True表示在CD中"""
         if user_id not in self.good_morning_cd:
             return False
-        
+
         last_time = self.good_morning_cd[user_id]
         time_diff = (current_time - last_time).total_seconds()
         return time_diff < 1800  # 硬编码30分钟
@@ -379,7 +379,7 @@ class Main(Star):
                 if resp.status != 200:
                     return CommandResult().error("请求失败")
                 data = await resp.json()
-        return CommandResult().message(data["hitokoto"] + " —— " + data["from"]) 
+        return CommandResult().message(data["hitokoto"] + " —— " + data["from"])  
 
     async def save_what_eat_data(self):
         path = os.path.abspath(os.path.dirname(__file__))
@@ -415,6 +415,13 @@ class Main(Star):
                     self.what_to_eat_data.remove(i)
             await self.save_what_eat_data()
             return CommandResult().message("删除成功")
+        elif "列表" in message.message_str:
+            if not self.what_to_eat_data:
+                return CommandResult().message("食物列表为空，快用「今天吃什么 添加 xxx」来添加吧！")
+            food_list = "\n".join(
+                f"{i + 1}. {food}" for i, food in enumerate(self.what_to_eat_data)
+            )
+            return CommandResult().message(f"【食物列表】共 {len(self.what_to_eat_data)} 项：\n{food_list}").use_t2i(False)
 
         ret = f"今天吃 {random.choice(self.what_to_eat_data)}！"
         return CommandResult().message(ret)
@@ -537,7 +544,7 @@ class Main(Star):
         self.data["good_morning"] = self.good_morning_data
         with open(f"data/{self.PLUGIN_NAME}_data.json", "w", encoding="utf-8") as f:
             f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
-            
+
         # 更新CD
         self.update_good_morning_cd(user_id, curr_utc8)
 
@@ -555,7 +562,7 @@ class Main(Star):
                 ).day
                 if user_day == curr_day:
                     curr_day_sleeping += 1
-        
+
         # 更新缓存为最新计算结果
         self.update_sleep_cache(umo_id, curr_date_str, curr_day_sleeping)
 
@@ -567,7 +574,7 @@ class Main(Star):
                     user["daily"]["night_time"], "%Y-%m-%d %H:%M:%S"
                 )
                 morning_time = datetime.datetime.strptime(
-                    user["daily"]["morning_time"] , "%Y-%m-%d %H:%M:%S"
+                    user["daily"]["morning_time"], "%Y-%m-%d %H:%M:%S"
                 )
                 sleep_duration = (morning_time - night_time).total_seconds()
                 hrs = int(sleep_duration / 3600)
