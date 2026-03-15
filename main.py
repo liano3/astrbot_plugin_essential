@@ -501,7 +501,7 @@ class Main(Star):
             .use_t2i(False)
         )
 
-    @filter.regex(r"^(早安|晚安)")
+    @filter.regex(r"^(早安|晚安)$")
     async def good_morning(self, message: AstrMessageEvent):
         """和Bot说早晚安，记录睡眠时间，培养良好作息"""
         # CREDIT: 灵感部分借鉴自：https://github.com/MinatoAquaCrews/nonebot_plugin_morning
@@ -531,16 +531,67 @@ class Main(Star):
                 }
             }
 
+        # 凌晨四点作为一天界限的逻辑
+        def get_logical_date(dt: datetime.datetime) -> datetime.date:
+            if dt.hour < 4:
+                return (dt - datetime.timedelta(days=1)).date()
+            return dt.date()
+
+        curr_logical_date = get_logical_date(curr_utc8)
+        curr_date_str = curr_logical_date.strftime("%Y-%m-%d")
+
+        forgot_morning = False
+        # 检查晚安记录是否过期（超过1个逻辑日未早安，即一天没说早安）
+        if user["daily"].get("night_time"):
+            night_dt = datetime.datetime.strptime(user["daily"]["night_time"], "%Y-%m-%d %H:%M:%S")
+            night_logical_date = get_logical_date(night_dt)
+            delta_days = (curr_logical_date - night_logical_date).days
+            if delta_days > 1:
+                forgot_morning = True
+                user["daily"]["night_time"] = ""  # 清除过期晚安记录
+
+        sleep_duration_human = ""
+        sleep_comment = ""
+
         if is_night:
             user["daily"]["night_time"] = curr_human
             user["daily"]["morning_time"] = ""  # 晚安后清空早安时间
         else:
             user["daily"]["morning_time"] = curr_human
+            # 早安先计算睡眠时间，随后清空晚安时间，防止多次早安重复计算
+            if user["daily"].get("night_time"):
+                night_dt = datetime.datetime.strptime(
+                    user["daily"]["night_time"], "%Y-%m-%d %H:%M:%S"
+                )
+                # 将 curr_utc8 转为 naive datetime 方便相减
+                curr_naive = curr_utc8.replace(tzinfo=None)
+                sleep_duration = (curr_naive - night_dt).total_seconds()
+                
+                if sleep_duration > 0:
+                    hours_float = sleep_duration / 3600
+                    hrs = int(hours_float)
+                    mins = int((sleep_duration % 3600) / 60)
+                    sleep_duration_human = f"{hrs}小时{mins}分"
+
+                    # --- 根据睡眠时间给出评语 ---
+                    if hours_float < 4:
+                        sleep_comment = "修仙呢？一定要注意身体啊喂！"
+                    elif hours_float < 6:
+                        sleep_comment = "睡得有点少哦，今天也要元气满满喵，记得补觉！"
+                    elif hours_float <= 9:
+                        sleep_comment = "充足的睡眠！今天也是充满希望的一天喵！"
+                    elif hours_float <= 12:
+                        sleep_comment = "睡得好饱喵~ 猪猪起床啦！"
+                    else:
+                        sleep_comment = "你是睡神转世吗？！"
+                
+                # 计算完毕后清空晚安时间
+                user["daily"]["night_time"] = ""
 
         umo[user_id] = user
         self.good_morning_data[umo_id] = umo
 
-        # 修复：保存时将 good_morning_data 包裹在正确的结构中，避免重启后数据丢失
+        # 保存数据
         self.data["good_morning"] = self.good_morning_data
         with open(f"data/{self.PLUGIN_NAME}_data.json", "w", encoding="utf-8") as f:
             f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
@@ -548,51 +599,51 @@ class Main(Star):
         # 更新CD
         self.update_good_morning_cd(user_id, curr_utc8)
 
-        # 根据 day 判断今天是本群第几个睡觉的
-        curr_day: int = curr_utc8.day
-        curr_date_str = curr_utc8.strftime("%Y-%m-%d")
-
-        self.invalidate_sleep_cache(umo_id, curr_date_str)
+        # 统计本群今天第几个睡觉的（仅晚安触发）
         curr_day_sleeping = 0
-        for v in umo.values():
-            if v["daily"]["night_time"] and not v["daily"]["morning_time"]:
-                # he/she is sleeping
-                user_day = datetime.datetime.strptime(
-                    v["daily"]["night_time"], "%Y-%m-%d %H:%M:%S"
-                ).day
-                if user_day == curr_day:
-                    curr_day_sleeping += 1
+        if is_night:
+            self.invalidate_sleep_cache(umo_id, curr_date_str)
+            for v in umo.values():
+                n_time_str = v.get("daily", {}).get("night_time", "")
+                if n_time_str:
+                    n_dt = datetime.datetime.strptime(n_time_str, "%Y-%m-%d %H:%M:%S")
+                    # 使用逻辑日期进行匹配，解决凌晨睡觉无法统计到同一天的问题
+                    if get_logical_date(n_dt) == curr_logical_date:
+                        curr_day_sleeping += 1
 
-        # 更新缓存为最新计算结果
-        self.update_sleep_cache(umo_id, curr_date_str, curr_day_sleeping)
+            # 更新缓存为最新计算结果
+            self.update_sleep_cache(umo_id, curr_date_str, curr_day_sleeping)
 
         if not is_night:
-            # 计算睡眠时间: xx小时xx分
-            sleep_duration_human = ""
-            if user["daily"]["night_time"]:
-                night_time = datetime.datetime.strptime(
-                    user["daily"]["night_time"], "%Y-%m-%d %H:%M:%S"
+            if sleep_duration_human:
+                return (
+                    CommandResult()
+                    .message(
+                        f"早上好喵，{user_name}！\n现在是 {curr_human}\n昨晚你睡了 {sleep_duration_human}。\n{sleep_comment}"
+                    )
+                    .use_t2i(False)
                 )
-                morning_time = datetime.datetime.strptime(
-                    user["daily"]["morning_time"], "%Y-%m-%d %H:%M:%S"
+            elif forgot_morning:
+                return (
+                    CommandResult()
+                    .message(
+                        f"早上好喵，{user_name}！\n现在是 {curr_human}\n你昨天好像忘记说早安了喵，之前的晚安记录已清除，下次不要忘记早安呦~"
+                    )
+                    .use_t2i(False)
                 )
-                sleep_duration = (morning_time - night_time).total_seconds()
-                hrs = int(sleep_duration / 3600)
-                mins = int((sleep_duration % 3600) / 60)
-                sleep_duration_human = f"{hrs}小时{mins}分"
-
-            return (
-                CommandResult()
-                .message(
-                    f"早上好喵，{user_name}！\n现在是 {curr_human}，昨晚你睡了 {sleep_duration_human}。"
+            else:
+                return (
+                    CommandResult()
+                    .message(
+                        f"早上好喵，{user_name}！\n现在是 {curr_human}\n你昨晚好像没有和我说晚安哦~"
+                    )
+                    .use_t2i(False)
                 )
-                .use_t2i(False)
-            )
         else:
             return (
                 CommandResult()
                 .message(
-                    f"快睡觉喵，{user_name}！\n现在是 {curr_human}，你是本群今天第 {curr_day_sleeping} 个睡觉的。"
+                    f"快睡觉喵，{user_name}！\n现在是 {curr_human}\n你是本群今天第 {curr_day_sleeping} 个睡觉的。"
                 )
                 .use_t2i(False)
             )
