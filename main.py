@@ -28,7 +28,9 @@ class Main(Star):
         self.mc_html_tmpl = open(
             path + "/templates/mcs.html", "r", encoding="utf-8"
         ).read()
-        self.what_to_eat_data: list = json.loads(
+        
+        # 【修改点1】将原 food.json 作为默认的食物模板只读加载
+        self.default_food_list: list = json.loads(
             open(path + "/resources/food.json", "r", encoding="utf-8").read()
         )["data"]
 
@@ -37,7 +39,10 @@ class Main(Star):
                 f.write(json.dumps({}, ensure_ascii=False, indent=2))
         with open(f"data/{PLUGIN_NAME}_data.json", "r", encoding="utf-8") as f:
             self.data = json.loads(f.read())
+            
         self.good_morning_data = self.data.get("good_morning", {})
+        # 【修改点2】从独立数据文件中加载各会话的食物数据字典
+        self.what_to_eat_data = self.data.get("what_to_eat", {})
 
         # moe
         self.moe_urls = [
@@ -382,17 +387,24 @@ class Main(Star):
         return CommandResult().message(data["hitokoto"] + " —— " + data["from"])  
 
     async def save_what_eat_data(self):
-        path = os.path.abspath(os.path.dirname(__file__))
-        with open(path + "/resources/food.json", "w", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    {"data": self.what_to_eat_data}, ensure_ascii=False, indent=2
-                )
-            )
+        # 将会话独立的食物数据保存至统一的插件数据文件中
+        self.data["what_to_eat"] = self.what_to_eat_data
+        path = f"data/{self.PLUGIN_NAME}_data.json"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
 
     @filter.command("今天吃什么")
     async def what_to_eat(self, message: AstrMessageEvent):
         """今天吃什么"""
+        umo_id = message.unified_msg_origin
+        
+        # 如果当前会话没有食物列表，则使用默认的食物列表进行初始化
+        if umo_id not in self.what_to_eat_data:
+            self.what_to_eat_data[umo_id] = self.default_food_list.copy()
+            
+        # 获取当前会话专属的食物列表
+        session_food_list = self.what_to_eat_data[umo_id]
+
         if "添加" in message.message_str:
             l = message.message_str.split(" ")
             # 今天吃什么 添加 xxx xxx xxx
@@ -400,9 +412,10 @@ class Main(Star):
                 return CommandResult().error(
                     "格式：今天吃什么 添加 [食物1] [食物2] ..."
                 )
-            self.what_to_eat_data += l[2:]  # 添加食物
+            session_food_list += l[2:]  # 添加食物
             await self.save_what_eat_data()
             return CommandResult().message("添加成功")
+            
         elif "删除" in message.message_str:
             l = message.message_str.split(" ")
             # 今天吃什么 删除 xxx xxx xxx
@@ -411,19 +424,23 @@ class Main(Star):
                     "格式：今天吃什么 删除 [食物1] [食物2] ..."
                 )
             for i in l[2:]:
-                if i in self.what_to_eat_data:
-                    self.what_to_eat_data.remove(i)
+                if i in session_food_list:
+                    session_food_list.remove(i)
             await self.save_what_eat_data()
             return CommandResult().message("删除成功")
+            
         elif "列表" in message.message_str:
-            if not self.what_to_eat_data:
-                return CommandResult().message("食物列表为空，快用「今天吃什么 添加 xxx」来添加吧！")
-            food_list = "\n".join(
-                f"{i + 1}. {food}" for i, food in enumerate(self.what_to_eat_data)
+            if not session_food_list:
+                return CommandResult().message("当前会话的食物列表为空，快用「今天吃什么 添加 xxx」来添加吧！")
+            food_list_str = "\n".join(
+                f"{i + 1}. {food}" for i, food in enumerate(session_food_list)
             )
-            return CommandResult().message(f"【食物列表】共 {len(self.what_to_eat_data)} 项：\n{food_list}").use_t2i(False)
+            return CommandResult().message(f"【本群食物列表】共 {len(session_food_list)} 项：\n{food_list_str}").use_t2i(False)
 
-        ret = f"今天吃 {random.choice(self.what_to_eat_data)}！"
+        if not session_food_list:
+            return CommandResult().message("当前食物列表为空，抽不出结果喵，请先添加食物！")
+
+        ret = f"今天吃 {random.choice(session_food_list)}！"
         return CommandResult().message(ret)
 
     @filter.command("喜加一")
